@@ -661,9 +661,10 @@
                 if(db) {
                     try {
                         // Parallel fetch for speed
-                        const [sSnap, pSnap] = await Promise.all([
+                        const [sSnap, pSnap, oSnap] = await Promise.all([
                             db.ref('settings').get(),
-                            db.ref('products_data').get()
+                            db.ref('products_data').get(),
+                            db.ref('orders').get()
                         ]);
 
                         if(sSnap.exists()) {
@@ -678,6 +679,12 @@
                             allProducts.push(...pSnap.val());
                             localStorage.setItem('ibdaa_prods', JSON.stringify(allProducts));
                         }
+
+                        if(oSnap.exists()) {
+                            const data = oSnap.val();
+                            const cloudOrders = Object.values(data).filter(o => o && o.invNum).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+                            localStorage.setItem('ibdaa_orders', JSON.stringify(cloudOrders));
+                        }
                     } catch(err) {
                         console.error("Initial data fetch error:", err);
                     }
@@ -685,6 +692,9 @@
 
                 // Initialize UI and Start Listeners
                 renderProducts();
+                if(activeView === 'orders') renderOrders();
+                if(isAdmin) renderAdminOrders();
+                
                 if(typeof startRealtimeSync === 'function') startRealtimeSync();
                 
                 // FINAL STEP: Hide Loading Overlay only after data is ready
