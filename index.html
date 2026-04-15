@@ -3,7 +3,7 @@
 <head>
     <meta charset='UTF-8'>
     <meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0, shrink-to-fit=no'>
-    <meta name="version" content="v53">
+    <meta name="version" content="v54">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
@@ -625,13 +625,13 @@
                     <div class='text-right'><h4 class='text-red-500 mb-3 font-black uppercase tracking-widest text-[10px]'>للتواصل والطلب</h4><p class='flex items-center gap-3 justify-end mb-1 font-black text-white text-xl'><i data-lucide='phone' class='w-5 h-5 text-red-500'></i> <span class="store-phone">091-0000000</span></p><p class='flex items-center gap-3 justify-end'><i data-lucide='map-pin' class='w-4 h-4'></i> <span class="store-address">طرابلس - ليبيا</span></p></div>
                 </div>
             </div>
-            <div class='pt-10 text-center'><p class='text-slate-500 text-[10px] font-bold tracking-widest uppercase'>Version v53 <span id="sync-status" class="inline-block w-2 h-2 rounded-full bg-slate-400 mr-2"></span> <span id="sync-error" class="block mt-2 bg-yellow-100 text-black px-4 py-2 rounded-lg font-black text-xs border border-yellow-300"></span> | © 2026 AL-IBDAA CONFECTIONERY SUPPLIES - TRIPOLI, LIBYA</p></div>
+            <div class='pt-10 text-center'><p class='text-slate-500 text-[10px] font-bold tracking-widest uppercase'>Version v54 <span id="sync-status" class="inline-block w-2 h-2 rounded-full bg-slate-400 mr-2"></span> <span id="sync-error" class="block mt-2 bg-yellow-100 text-black px-4 py-2 rounded-lg font-black text-xs border border-yellow-300"></span> | © 2026 AL-IBDAA CONFECTIONERY SUPPLIES - TRIPOLI, LIBYA</p></div>
         </div>
     </footer>
     
     <script>
         // v46_persistence_fix: Optimized Cloud-First Sync (No Purge)
-        const CURRENT_VERSION = 'v53';
+        const CURRENT_VERSION = 'v54';
         
         // Version Control for Cache Management (Only clear on major version change)
         if(localStorage.getItem('ibdaa_app_version') !== CURRENT_VERSION) {
@@ -916,18 +916,19 @@
             document.title = "الابداع لمستلزمات الحلويات - " + headline;
         }
         async function init() {
-            console.log("v53_instant_load: Initializing...");
+            console.log("v54_safe_start: Initializing...");
             
-            // 1. Hide Overlay immediately if it's already shown to ensure page is visible
-            const overlay = document.getElementById("loading-overlay");
-            if(overlay) {
-                setTimeout(() => {
+            // 1. FORCE HIDE OVERLAY (Ensures the app always opens)
+            const forceHide = () => {
+                const overlay = document.getElementById("loading-overlay");
+                if(overlay) {
                     overlay.style.opacity = "0";
                     setTimeout(() => overlay.classList.add("hide"), 500);
-                }, 1000); // Give 1 second for aesthetics, then force open
-            }
+                }
+            };
+            setTimeout(forceHide, 1500); // Wait 1.5s then force open
             
-            // 2. Load Local Data for Instant Start
+            // 2. Load Local Data (Instant UI)
             const savedSettings = localStorage.getItem("ibdaa_settings");
             const savedProds = localStorage.getItem("ibdaa_prods");
             if (savedSettings) { try { storeSettings = JSON.parse(savedSettings); } catch(e){} }
@@ -942,16 +943,16 @@
             const statusEl = document.getElementById("sync-status");
             const errEl = document.getElementById("sync-error");
 
-            // 4. Background Cloud Connection (Non-blocking)
+            // 4. Background Firebase Connection
             try {
                 if(typeof firebase !== "undefined") {
                     if(!firebase.apps.length) firebase.initializeApp(firebaseConfig);
                     db = firebase.database();
                     
                     firebase.auth().signInAnonymously().then(async () => {
-                        console.log("Cloud Connected in background!");
+                        console.log("Cloud Connected!");
                         if(statusEl) { statusEl.classList.remove("bg-slate-400", "bg-red-500"); statusEl.classList.add("bg-green-500"); }
-                        if(errEl) errEl.innerText = "Connected 🟢";
+                        if(errEl) errEl.innerText = "متصل بنجاح 🟢";
                         
                         if(db) {
                             const [sSnap, pSnap] = await Promise.all([db.ref("settings").get(), db.ref("products_data").get()]);
@@ -959,17 +960,21 @@
                             if(pSnap.exists()) { allProducts.length = 0; allProducts.push(...pSnap.val()); localStorage.setItem("ibdaa_prods", JSON.stringify(allProducts)); renderProducts(); }
                             if(typeof startRealtimeSync === "function") startRealtimeSync();
                         }
+                        forceHide();
                     }).catch(err => {
                         console.error("Auth Error:", err);
                         if(statusEl) { statusEl.classList.remove("bg-green-500"); statusEl.classList.add("bg-red-500"); }
-                        if(errEl) errEl.innerText = "Sync Error: " + (err.code || err.message);
+                        if(errEl) errEl.innerText = "خطأ مزامنة: " + (err.code || err.message);
+                        forceHide();
                     });
                 } else {
-                    if(errEl) errEl.innerText = "Firebase library missing!";
+                    if(errEl) errEl.innerText = "Firebase library not loaded!";
+                    forceHide();
                 }
             } catch (err) {
-                console.error("Critical System Error:", err);
-                if(errEl) errEl.innerText = "Critical Error!";
+                console.error("Critical Error:", err);
+                if(errEl) errEl.innerText = "Critical System Error!";
+                forceHide();
             }
 
             const savedRatings = localStorage.getItem("ibdaa_ratings");
@@ -978,87 +983,6 @@
             if (savedCart) { cart = JSON.parse(savedCart); updateCartBadge(); }
         }
 
-                const matchesSearch = (p.name || "").toLowerCase().includes(currentSearchQuery) || (p.id || "").toLowerCase().includes(currentSearchQuery);
-                return matchesCategory && matchesSearch;
-            });
-            renderProducts();
-        }
-
-        function setDisplayMode(mode) {
-            displayMode = mode;
-            document.getElementById('btn-grid').className = mode === 'grid' ? 'p-3 bg-red-500 text-white rounded-xl shadow-lg border-2 border-red-500 transition-all' : 'p-3 bg-white text-slate-400 rounded-xl shadow-sm border-2 border-slate-100 hover:border-red-500 transition-all';
-            document.getElementById('btn-list').className = mode === 'list' ? 'p-3 bg-red-500 text-white rounded-xl shadow-lg border-2 border-red-500 transition-all' : 'p-3 bg-white text-slate-400 rounded-xl shadow-sm border-2 border-slate-100 hover:border-red-500 transition-all';
-            renderProducts();
-        }
-
-        function renderProducts() {
-            const grid = document.getElementById('products-grid');
-            if (products.length === 0) {
-                grid.innerHTML = `<div class="col-span-full py-24 text-center">
-                    <i data-lucide="search-x" class="w-16 h-16 text-slate-200 mx-auto mb-6"></i>
-                    <p class="text-slate-400 font-bold text-xl">لا توجد نتائج مطابقة لبحثك</p>
-                </div>`;
-            } else {
-                grid.innerHTML = products.map(p => {
-                    const isInCart = cart.some(item => item.id === p.id);
-                    const btnClass = isInCart ? 'bg-green-500' : 'btn-red';
-                    const btnText = isInCart ? '<i data-lucide="check" class="w-5 h-5"></i> تم الإضافة' : '<i data-lucide="plus-circle" class="w-5 h-5"></i> أضف للسلة';
-                    const stars = '★'.repeat(p.rating || 5) + '☆'.repeat(5 - (p.rating || 5));
-                    
-                    if(displayMode === 'list') {
-                        return `
-                        <div class="product-card col-span-full bg-white rounded-[2rem] shadow-lg border border-slate-100 overflow-hidden flex items-center p-4 gap-6">
-                            <img src="${p.image}" class="w-24 h-24 object-cover rounded-2xl shadow-sm" onerror="this.src='https://via.placeholder.com/100'">
-                            <div class="flex-1 flex justify-between items-center">
-                                <div class="text-right">
-                                    <h3 class="text-lg font-black text-brand-blue">${p.name} <span class="text-[10px] text-slate-300">#${p.id}</span></h3>
-                                    <p class="text-[10px] text-slate-400 mt-1 line-clamp-1">${(storeSettings.categories || []).find(c => c.id === p.category)?.name || ('مجموعة ' + p.category)} - ${p.description || ''}</p>
-                                    <div class="text-amber-400 text-xs mt-1">${stars}</div>
-                                </div>
-                                <div class="flex items-center gap-6">
-                                    <div class="text-left"><span class="text-xl font-black text-brand-blue">${p.price}</span> <span class="text-[8px] text-slate-400">د.ل</span></div>
-                                    <button onclick="addToCart('${p.id}')" class="${btnClass} text-white px-6 py-3 rounded-xl text-xs font-black shadow-lg transition-all">
-                                        ${btnText}${p.stock <= 0 ? " (غير متوفر)" : ""}
-                                    </button>
-                                </div>
-                            </div>
-                        </div>`;
-                    }
-                    return `
-                    <div class="product-card bg-white rounded-[3rem] shadow-xl border border-slate-100 overflow-hidden group">
-                        <div class="relative h-72 overflow-hidden bg-slate-100">
-                            <img src="${p.image}" alt="${p.name}" class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" onerror="this.onerror=null; this.parentElement.innerHTML='<div class=\'w-full h-full flex flex-col items-center justify-center bg-slate-100 text-slate-300 p-10 text-center border-4 border-dashed border-slate-200 rounded-[3rem]\'><div class=\'bg-white p-4 rounded-2xl mb-4 shadow-sm\'><i data-lucide=\'image-off\' class=\'w-10 h-10 text-slate-300\'></i></div><span class=\'font-black text-xs uppercase tracking-widest text-slate-400\'>' + p.name + '</span><span class=\'text-[8px] font-bold mt-1 text-slate-300\'>الصورة غير متوفرة</span></div>'; lucide.createIcons();">
-                            <div class="absolute top-6 right-6 flex flex-col gap-2 items-end">
-                                <span class="bg-white/90 backdrop-blur-md text-brand-blue text-[10px] px-4 py-2 rounded-full font-black shadow-xl uppercase tracking-widest border border-slate-100">${(storeSettings.categories || []).find(c => c.id === p.category)?.name || ('مجموعة ' + p.category)}</span>
-                                <span class="bg-red-500 text-white text-[9px] px-3 py-1.5 rounded-full font-black shadow-lg">${p.pieces || 1} قطعة / علبة</span>
-                            </div>
-                        </div>
-                        <div class="p-10 text-right">
-                            <div class="flex justify-between items-start mb-2">
-                                <h3 class="text-2xl font-black text-brand-blue group-hover:text-red-500 transition-colors">${p.name}</h3>
-                                <span class="text-xs font-black text-slate-300">#${p.id}</span>
-                            </div>
-                           <div class="text-amber-400 text-sm mb-4 flex gap-1 justify-end">${[1,2,3,4,5].map(star => `<button onclick="setRating('${p.id}', ${star})" class="hover:scale-125 transition-transform">${star <= (p.rating || 5) ? '★' : '☆'}</button>`).join('')}</div>
-                            <p class="text-slate-400 font-bold text-sm mb-8 leading-relaxed h-12 line-clamp-2">${p.description || ''}</p>
-                            <div class="flex justify-between items-center pt-6 border-t border-slate-50">
-                                <div class="flex flex-col">
-                                    <span class="text-3xl font-black text-brand-blue">${p.price}</span>
-                                    <span class="text-[10px] font-black text-slate-300 uppercase">دينار ليبي</span>
-                                </div>
-                                ${p.stock > 0 ? `<button onclick="addToCart('${p.id}')" class="${btnClass} text-white px-8 py-4 rounded-2xl text-sm font-black shadow-xl shadow-red-100 flex items-center gap-2 transition-all">` : `<button disabled class="bg-slate-100 text-slate-400 px-8 py-4 rounded-2xl text-sm font-black cursor-not-allowed flex items-center gap-2">`}
-                                    ${btnText}${p.stock <= 0 ? " (غير متوفر)" : ""}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                `; }).join('');
-            }
-            lucide.createIcons();
-        }
-
-        function setRating(productId, rating) {
-            const product = allProducts.find(p => p.id === productId);
-            if (product) {
                 product.rating = rating;
                 const savedRatings = JSON.parse(localStorage.getItem("ibdaa_ratings") || "{}");
                 savedRatings[productId] = rating;
