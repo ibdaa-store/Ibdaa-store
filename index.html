@@ -627,23 +627,16 @@
     </footer>
     
     <script>
-        // v46: Absolute Cloud Priority Cache Clear
-        (function() {
-            console.log("v46: Forcing Absolute Cloud Sync. Purging local cache...");
-            localStorage.removeItem('ibdaa_settings');
-            localStorage.removeItem('ibdaa_prods');
-        })();
-        // Version Control for Cache Busting
-        const CURRENT_VERSION = 'v39';
+        // v46_persistence_fix: Optimized Cloud-First Sync (No Purge)
+        const CURRENT_VERSION = 'v46.1';
+        
+        // Version Control for Cache Management (Only clear on major version change)
         if(localStorage.getItem('ibdaa_app_version') !== CURRENT_VERSION) {
-            console.log("New version detected. Clearing old cache...");
-            localStorage.removeItem('ibdaa_settings');
-            localStorage.removeItem('ibdaa_prods');
+            console.log("New version detected. Initializing cache...");
             localStorage.setItem('ibdaa_app_version', CURRENT_VERSION);
-            // We don't force reload here to avoid infinite loops, 
-            // but clearing LocalStorage ensures Firebase will be the only source.
         }
-        // --- Firebase Configuration (Solution Professional) ---
+
+        // --- Firebase Configuration ---
         // سيتم استبدال هذه الإعدادات ببياناتك الخاصة عند الربط الرسمي
         const firebaseConfig = {
           apiKey: "AIzaSyBWsM9J2hRDDj7bkYeekmYYtCaz8gQff8w",
@@ -908,66 +901,84 @@
             document.title = "الابداع لمستلزمات الحلويات - " + headline;
         }
         async function init() {
-            console.log("Initializing v39 - Forced Cloud Sync Logic");
+            console.log("v46_persistence_fix: Initializing with hybrid sync strategy");
             const loadingOverlay = document.getElementById('loading-overlay');
             if(loadingOverlay) loadingOverlay.style.display = 'flex';
-            // Load store settings from LocalStorage as temporary fallback
+            
+            // 1. FAST LOAD: Load from LocalStorage immediately for instant UI
             const savedSettings = localStorage.getItem('ibdaa_settings');
+            const savedProds = localStorage.getItem('ibdaa_prods');
+            
             if (savedSettings) {
-                try {
-                    storeSettings = JSON.parse(savedSettings);
-                } catch(e) { console.error("Settings parse error", e); }
+                try { storeSettings = JSON.parse(savedSettings); } catch(e) { console.error(e); }
+            }
+            if (savedProds) {
+                try { 
+                    const prods = JSON.parse(savedProds);
+                    allProducts.length = 0;
+                    allProducts.push(...prods);
+                } catch(e) { console.error(e); }
             }
             
-            // Ensure categories exist even in fallback
-            if (!storeSettings.categories) {
-                storeSettings.categories = categoriesList.map(id => ({ id, name: 'مجموعة ' + id, active: true }));
-            }
-            
+            // Initial UI Render from Cache
             applySettingsToUI();
             renderCategories();
-
+            applyFilters();
             loadCustomerData();
 
+            // 2. BACKGROUND SYNC: Connect to Firebase to get latest data if available
             try {
-                // Initialize unique products storage if first time
-                if(!localStorage.getItem('ibdaa_prods')) {
-                    localStorage.setItem('ibdaa_prods', JSON.stringify(allProducts)); if(typeof syncProductsToCloud === 'function') syncProductsToCloud(allProducts);
-                } else {
-                    const savedProds = JSON.parse(localStorage.getItem('ibdaa_prods'));
-                    allProducts.length = 0;
-                    allProducts.push(...savedProds);
-                }
+                if(typeof firebase !== 'undefined') {
+                    if(!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+                    db = firebase.database();
+                    
+                    firebase.auth().signInAnonymously().then(async () => {
+                        console.log("Cloud Connected in background...");
+                        
+                        if(db) {
+                            // Fetch latest to ensure LocalStorage is up to date
+                            const [sSnap, pSnap] = await Promise.all([
+                                db.ref('settings').get(),
+                                db.ref('products_data').get()
+                            ]);
 
-                // Load ratings
-                const savedRatings = localStorage.getItem("ibdaa_ratings");
-                if (savedRatings) {
-                    const ratingsMap = JSON.parse(savedRatings);
-                    allProducts.forEach(p => {
-                        if (ratingsMap[p.id]) p.rating = ratingsMap[p.id];
+                            if(sSnap.exists()) {
+                                storeSettings = sSnap.val();
+                                localStorage.setItem('ibdaa_settings', JSON.stringify(storeSettings));
+                                applySettingsToUI();
+                                renderCategories();
+                            }
+                            
+                            if(pSnap.exists()) {
+                                allProducts.length = 0;
+                                allProducts.push(...pSnap.val());
+                                localStorage.setItem('ibdaa_prods', JSON.stringify(allProducts));
+                                renderProducts();
+                            }
+                            
+                            if(typeof startRealtimeSync === 'function') startRealtimeSync();
+                        }
                     });
                 }
+            } catch (err) { console.error("Cloud fallback error:", err); }
 
-                const savedCart = localStorage.getItem("ibdaa_cart");
-                if (savedCart) {
-                    cart = JSON.parse(savedCart);
-                    updateCartBadge();
-                }
-                
-                renderCategories();
-                applyFilters(); // Initial render
-                
-                // Hide loading overlay
-                setTimeout(() => {
-                    const overlay = document.getElementById('loading-overlay');
-                    if(overlay) {
-                        overlay.style.opacity = '0';
-                        setTimeout(() => overlay.remove(), 500);
-                    }
-                }, 800);
-            } catch (err) {
-                console.error("Initialization Error:", err);
+            // 3. FINAL UI: Load ratings and cart
+            const savedRatings = localStorage.getItem("ibdaa_ratings");
+            if (savedRatings) {
+                const ratingsMap = JSON.parse(savedRatings);
+                allProducts.forEach(p => { if (ratingsMap[p.id]) p.rating = ratingsMap[p.id]; });
             }
+            const savedCart = localStorage.getItem("ibdaa_cart");
+            if (savedCart) { cart = JSON.parse(savedCart); updateCartBadge(); }
+
+            // Hide loading overlay
+            setTimeout(() => {
+                const overlay = document.getElementById('loading-overlay');
+                if(overlay) {
+                    overlay.style.opacity = '0';
+                    setTimeout(() => overlay.remove(), 500);
+                }
+            }, 800);
         }
 
         // View Management
@@ -2115,6 +2126,17 @@
                             </button>
                         </div>
                         <div id="settings-categories-list" class="space-y-3">
+                            <!-- Injected dynamically -->
+                        </div>
+                    </div>
+
+                    <button type="submit" class="w-full py-5 bg-red-500 text-white rounded-2xl font-black text-xl shadow-xl hover:bg-red-600 transition-all mt-6">حفظ التغييرات</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</body>
+</html>tings-categories-list" class="space-y-3">
                             <!-- Injected dynamically -->
                         </div>
                     </div>
