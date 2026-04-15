@@ -675,9 +675,13 @@
                         }
                         
                         if(pSnap.exists()) {
-                            allProducts.length = 0;
-                            allProducts.push(...pSnap.val());
-                            localStorage.setItem('ibdaa_prods', JSON.stringify(allProducts));
+                            const cloudProds = pSnap.val();
+                            if(Array.isArray(cloudProds) && cloudProds.length > 0) {
+                                allProducts.length = 0;
+                                allProducts.push(...cloudProds);
+                                localStorage.setItem('ibdaa_prods', JSON.stringify(allProducts));
+                                applyFilters();
+                            }
                         }
 
                         if(oSnap.exists()) {
@@ -755,30 +759,22 @@
                     console.log("Settings update received from Cloud");
                     storeSettings = data;
                     localStorage.setItem('ibdaa_settings', JSON.stringify(storeSettings));
-                    
-                    // Force UI update immediately
                     applySettingsToUI();
                     renderCategories();
-                    
-                    // Critical: if headline or categories changed, products might need re-render
-                    if (typeof activeView !== 'undefined' && (activeView === 'products' || activeView === 'admin-products')) {
-                        renderProducts();
-                    }
+                    applyFilters(); 
                 }
             });
 
             // 2. Products Listener
             db.ref('products_data').on('value', (snapshot) => {
                 const data = snapshot.val();
-                if(data && Array.isArray(data)) {
+                if(data && Array.isArray(data) && data.length > 0) {
                     console.log("Products update received");
                     allProducts.length = 0;
                     allProducts.push(...data);
                     localStorage.setItem('ibdaa_prods', JSON.stringify(allProducts));
-                    if (typeof activeView !== 'undefined') {
-                        if(activeView === 'products') renderProducts();
-                        if(isAdmin && activeView === 'admin-products') renderAdminProductsTable();
-                    }
+                    applyFilters();
+                    if(isAdmin && activeView === 'admin-products') renderAdminProductsTable();
                 }
             });
 
@@ -911,17 +907,91 @@
             document.title = "الابداع لمستلزمات الحلويات - " + headline;
         }
         async function init() {
-            console.log("v46_persistence_fix: Initializing with hybrid sync strategy");
+            console.log("v46_root_sync_fix: Initializing hybrid strategy...");
             const loadingOverlay = document.getElementById('loading-overlay');
             if(loadingOverlay) loadingOverlay.style.display = 'flex';
             
-            // 1. FAST LOAD: Load from LocalStorage immediately for instant UI
+            // 1. Instant local load
             const savedSettings = localStorage.getItem('ibdaa_settings');
             const savedProds = localStorage.getItem('ibdaa_prods');
+            if (savedSettings) { try { storeSettings = JSON.parse(savedSettings); } catch(e){} }
+            if (savedProds) { try { const p = JSON.parse(savedProds); allProducts.length = 0; allProducts.push(...p); } catch(e){} }
             
-            if (savedSettings) {
-                try { storeSettings = JSON.parse(savedSettings); } catch(e) { console.error(e); }
+            applySettingsToUI();
+            renderCategories();
+            applyFilters();
+            loadCustomerData();
+
+            // 2. Persistent Cloud Sync (Retry Loop)
+            let fetchRetries = 0;
+            const maxRetries = 5;
+
+            async function fetchFromCloud() {
+                if(!db && typeof firebase !== 'undefined') {
+                    if(!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+                    db = firebase.database();
+                }
+                
+                if(!db) return;
+
+                firebase.auth().signInAnonymously().then(async () => {
+                    console.log("Cloud Connected. Fetching...");
+                    const [sSnap, pSnap, oSnap] = await Promise.all([
+                        db.ref('settings').get(),
+                        db.ref('products_data').get(),
+                        db.ref('orders').get()
+                    ]);
+
+                    if(sSnap.exists()) {
+                        storeSettings = sSnap.val();
+                        localStorage.setItem('ibdaa_settings', JSON.stringify(storeSettings));
+                        applySettingsToUI();
+                        renderCategories();
+                    }
+                    if(pSnap.exists()) {
+                        const cp = pSnap.val();
+                        if(Array.isArray(cp) && cp.length > 0) {
+                            allProducts.length = 0;
+                            allProducts.push(...cp);
+                            localStorage.setItem('ibdaa_prods', JSON.stringify(allProducts));
+                            applyFilters();
+                        }
+                    }
+                    if(oSnap.exists()) {
+                        const data = oSnap.val();
+                        const cloudOrders = Object.values(data).filter(o => o && o.invNum).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+                        localStorage.setItem('ibdaa_orders', JSON.stringify(cloudOrders));
+                    }
+                    
+                    if(typeof startRealtimeSync === 'function') startRealtimeSync();
+                    hideOverlay();
+                }).catch(err => {
+                    console.error("Retry "+fetchRetries, err);
+                    if(fetchRetries < maxRetries) {
+                        fetchRetries++;
+                        setTimeout(fetchFromCloud, 2000);
+                    } else { hideOverlay(); }
+                });
             }
+
+            function hideOverlay() {
+                setTimeout(() => {
+                    const overlay = document.getElementById('loading-overlay');
+                    if(overlay) { overlay.style.opacity = '0'; setTimeout(() => overlay.remove(), 500); }
+                }, 800);
+            }
+
+            fetchFromCloud();
+
+            // 3. Ratings and Cart
+            const savedRatings = localStorage.getItem("ibdaa_ratings");
+            if (savedRatings) {
+                const ratingsMap = JSON.parse(savedRatings);
+                allProducts.forEach(p => { if (ratingsMap[p.id]) p.rating = ratingsMap[p.id]; });
+            }
+            const savedCart = localStorage.getItem("ibdaa_cart");
+            if (savedCart) { cart = JSON.parse(savedCart); updateCartBadge(); }
+        }
             if (savedProds) {
                 try { 
                     const prods = JSON.parse(savedProds);
@@ -2146,6 +2216,18 @@
         </div>
     </div>
 </body>
+</html>tings-categories-list" class="space-y-3">
+                            <!-- Injected dynamically -->
+                        </div>
+                    </div>
+
+                    <button type="submit" class="w-full py-5 bg-red-500 text-white rounded-2xl font-black text-xl shadow-xl hover:bg-red-600 transition-all mt-6">حفظ التغييرات</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</body>
+</html>>
 </html>tings-categories-list" class="space-y-3">
                             <!-- Injected dynamically -->
                         </div>
